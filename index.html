@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>Jeu de Cartes - Calcul</title>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f2f5; padding: 10px; max-width: 600px; margin: 0 auto; color: #222; }
@@ -41,7 +43,7 @@
 </style>
 </head>
 <body>
-  <h1>🃏 Calcul Jeu de Cartes</h1>
+  <h1>🃏 Calcul Jeu de Cartes <span id="sync-indicator" style="font-size:11px;font-weight:normal;margin-left:6px;">⏳ Connexion...</span></h1>
 
   <div class="tabs">
     <button onclick="showTab('joueurs')" id="tab-joueurs" class="active">Joueurs</button>
@@ -119,36 +121,97 @@
   </div>
 
 <script>
-// ====== STATE ======
-let etat = JSON.parse(localStorage.getItem('jeu-cartes-v2') || 'null');
-if (!etat) {
-  etat = { joueurs: [], dettes: [], partie: {} };
-  // Liste réelle des joueurs avec leur cagnotte (en milliers de dt)
-  const initial = [
-    { nom: 'Lotfi',      cagnotte: 6,    jeton: false },
-    { nom: 'Arafet',     cagnotte: 3,    jeton: false },
-    { nom: 'Slim',       cagnotte: 4,    jeton: false },
-    { nom: 'Wassim',     cagnotte: 4,    jeton: false },
-    { nom: 'Sfia',       cagnotte: 2,    jeton: false },
-    { nom: 'Karim',      cagnotte: 6,    jeton: false },
-    { nom: 'Souhail',    cagnotte: 4,    jeton: false },
-    { nom: 'Selim',      cagnotte: 3,    jeton: false },
-    { nom: 'Hamma',      cagnotte: 2,    jeton: false },
-    { nom: 'Raouf',      cagnotte: 2,    jeton: false },
-    { nom: 'Anis',       cagnotte: 4,    jeton: false },
-    { nom: 'Abdelwahed', cagnotte: 3,    jeton: false },
-    { nom: 'Nabil',      cagnotte: 1/3,  jeton: true  }
-  ];
-  etat.joueurs = initial;
-}
-// Compat : si version précédente sans champ cagnotte
-etat.joueurs.forEach(j => { if (j.cagnotte === undefined) j.cagnotte = 0; });
+// ====== FIREBASE ======
+const firebaseConfig = {
+  apiKey: "AIzaSyDqDf6UPtg7OFehAAnDdHM44wtrCZr-JeY",
+  authDomain: "jeu-cartes-cf796.firebaseapp.com",
+  databaseURL: "https://jeu-cartes-cf796-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "jeu-cartes-cf796",
+  storageBucket: "jeu-cartes-cf796.firebasestorage.app",
+  messagingSenderId: "838874241361",
+  appId: "1:838874241361:web:23d9dc7cadcfcb2864db70"
+};
+firebase.initializeApp(firebaseConfig);
+const stateRef = firebase.database().ref('etat');
 
-function sauver() { localStorage.setItem('jeu-cartes-v2', JSON.stringify(etat)); }
+// ====== STATE ======
+let etat = { joueurs: [], dettes: [], partie: {} };
+let lastSync = null;
+let firebaseReady = false;
+
+const DEFAULT_JOUEURS = [
+  { nom: 'Lotfi',      cagnotte: 6,    jeton: false },
+  { nom: 'Arafet',     cagnotte: 3,    jeton: false },
+  { nom: 'Slim',       cagnotte: 4,    jeton: false },
+  { nom: 'Wassim',     cagnotte: 4,    jeton: false },
+  { nom: 'Sfia',       cagnotte: 2,    jeton: false },
+  { nom: 'Karim',      cagnotte: 6,    jeton: false },
+  { nom: 'Souhail',    cagnotte: 4,    jeton: false },
+  { nom: 'Selim',      cagnotte: 3,    jeton: false },
+  { nom: 'Hamma',      cagnotte: 2,    jeton: false },
+  { nom: 'Raouf',      cagnotte: 2,    jeton: false },
+  { nom: 'Anis',       cagnotte: 4,    jeton: false },
+  { nom: 'Abdelwahed', cagnotte: 3,    jeton: false },
+  { nom: 'Nabil',      cagnotte: 1/3,  jeton: true  }
+];
+
+function ensureDefaults() {
+  if (!etat.joueurs) etat.joueurs = [];
+  if (!etat.dettes) etat.dettes = [];
+  if (!etat.partie) etat.partie = {};
+  etat.joueurs.forEach(j => { if (j.cagnotte === undefined) j.cagnotte = 0; });
+}
+
+// Listener Firebase : reçoit les changements de tous les utilisateurs
+stateRef.on('value', snapshot => {
+  const data = snapshot.val();
+  const incoming = JSON.stringify(data);
+  if (incoming === lastSync) return; // notre propre écriture
+  lastSync = incoming;
+  if (data) {
+    etat = data;
+  } else if (!firebaseReady) {
+    // Première connexion, base vide : on initialise avec les 13 joueurs
+    etat = { joueurs: DEFAULT_JOUEURS.slice(), dettes: [], partie: {} };
+    stateRef.set(etat);
+  }
+  ensureDefaults();
+  firebaseReady = true;
+  // Re-render l'onglet actif
+  const activeTab = document.querySelector('.tabs button.active');
+  if (activeTab) {
+    const tabName = activeTab.id.replace('tab-','');
+    if (tabName === 'joueurs') renderJoueurs();
+    else if (tabName === 'cagnotte') renderCagnotte();
+    else if (tabName === 'dettes') renderDettes();
+    else if (tabName === 'partie') renderPartie();
+    else if (tabName === 'resultat') renderResultat();
+  }
+  updateSyncIndicator(true);
+});
+
+stateRef.onDisconnect && firebase.database().ref('.info/connected').on('value', s => {
+  updateSyncIndicator(s.val() === true);
+});
+
+function updateSyncIndicator(connected) {
+  const el = document.getElementById('sync-indicator');
+  if (el) {
+    el.textContent = connected ? '🟢 Sync' : '🔴 Hors ligne';
+    el.style.color = connected ? '#2e7d32' : '#c62828';
+  }
+}
+
+function sauver() {
+  ensureDefaults();
+  lastSync = JSON.stringify(etat);
+  stateRef.set(etat).catch(e => console.error('Sauvegarde Firebase échouée:', e));
+}
 
 function resetTout() {
-  if (!confirm('Effacer tous les joueurs, dettes et la partie ?')) return;
-  localStorage.removeItem('jeu-cartes-v2');
+  if (!confirm('Effacer tous les joueurs, dettes et la partie ? Cette action affecte TOUS les joueurs.')) return;
+  etat = { joueurs: DEFAULT_JOUEURS.slice(), dettes: [], partie: {} };
+  sauver();
   location.reload();
 }
 
@@ -483,7 +546,9 @@ function renderResultat() {
 }
 
 // ====== INIT ======
-renderJoueurs();
+// Le premier renderJoueurs() arrivera quand Firebase répond
+// On affiche un placeholder en attendant
+document.getElementById('liste-joueurs').innerHTML = '<p style="color:#999;font-size:13px;">⏳ Chargement depuis Firebase...</p>';
 </script>
 </body>
 </html>
