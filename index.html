@@ -53,12 +53,16 @@
 
   <!-- JOUEURS -->
   <div id="content-joueurs" class="card">
-    <h2>Joueurs (12 + 1 jeton)</h2>
-    <div class="info">Coche "jeton" pour le 13ème qui paye 3000 jetons à l'entrée.</div>
+    <h2>Joueurs</h2>
+    <div class="info">Coche "jeton" pour celui qui paye en jetons à l'entrée. Croix rouge pour supprimer.</div>
     <div id="liste-joueurs"></div>
+    <div class="row" style="margin-top:10px;">
+      <input type="text" id="nouveau-nom" placeholder="Nom du nouveau joueur" onkeydown="if(event.key==='Enter')ajouterJoueur()">
+      <button class="secondary small" onclick="ajouterJoueur()" style="white-space:nowrap;">+ Ajouter</button>
+    </div>
     <div class="menu-action">
       <button onclick="sauverJoueurs()">💾 Enregistrer</button>
-      <button class="gray" onclick="resetTout()">🗑️ Reset</button>
+      <button class="gray" onclick="resetTout()">🗑️ Reset tout</button>
     </div>
   </div>
 
@@ -219,6 +223,10 @@ function setCagnotte(i, val) {
 function renderJoueurs() {
   const div = document.getElementById('liste-joueurs');
   div.innerHTML = '';
+  if (etat.joueurs.length === 0) {
+    div.innerHTML = '<p style="color:#999;font-size:13px;">Aucun joueur. Ajoute-en un ci-dessous.</p>';
+    return;
+  }
   etat.joueurs.forEach((j, i) => {
     const row = document.createElement('div');
     row.className = 'row';
@@ -227,15 +235,39 @@ function renderJoueurs() {
       <label style="display:flex;align-items:center;gap:3px;font-size:12px;white-space:nowrap;">
         <input type="checkbox" style="width:auto;" ${j.jeton?'checked':''} onchange="etat.joueurs[${i}].jeton=this.checked; sauver();">jeton
       </label>
+      <button class="danger small" onclick="supprJoueur(${i})">✕</button>
     `;
     div.appendChild(row);
   });
 }
 
+function ajouterJoueur() {
+  const input = document.getElementById('nouveau-nom');
+  const nom = input.value.trim();
+  if (!nom) return;
+  if (etat.joueurs.some(j => j.nom === nom)) { alert('Ce nom existe déjà'); return; }
+  etat.joueurs.push({ nom, cagnotte: 0, jeton: false });
+  input.value = '';
+  sauver();
+  renderJoueurs();
+  input.focus();
+}
+
+function supprJoueur(i) {
+  const nom = etat.joueurs[i].nom;
+  if (!confirm('Supprimer ' + nom + ' ?')) return;
+  etat.joueurs.splice(i, 1);
+  etat.dettes = etat.dettes.filter(d => d.de !== nom && d.a !== nom);
+  delete etat.partie[nom];
+  sauver();
+  renderJoueurs();
+}
+
 function renameJoueur(i, newName) {
   const old = etat.joueurs[i].nom;
-  if (!newName.trim() || newName === old) { renderJoueurs(); return; }
-  // Met à jour les dettes et la partie
+  newName = newName.trim();
+  if (!newName || newName === old) { renderJoueurs(); return; }
+  if (etat.joueurs.some((j,k) => k !== i && j.nom === newName)) { alert('Nom déjà pris'); renderJoueurs(); return; }
   etat.dettes.forEach(d => {
     if (d.de === old) d.de = newName;
     if (d.a === old) d.a = newName;
